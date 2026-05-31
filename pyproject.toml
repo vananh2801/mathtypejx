@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mathtypejx"
+version = "0.1.0"
+description = "Pure-Python MathType OLE formula parser and OMML converter for Word .docx files"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "mathtypejx contributors"},
+]
+keywords = ["mathtype", "mtef", "mathml", "omml", "docx", "equation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Markup :: XML",
+]
+dependencies = [
+    "lxml>=4.9",
+    "olefile>=0.46",
+    "python-docx>=0.8",
+]
+
+[project.scripts]
+mathtypejx = "mathtypejx.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-cov",
+]
+
+[tool.setuptools.package-data]
+mathtypejx = [
+    "mtef/xslt/**/*.xsl",
+    "mtef/xslt/**/*.xml",
+    "mtef/xslt/**/*.rng",
+    "mtef/xslt/**/LICENSE",
+    "mtef/xslt/**/README.md",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

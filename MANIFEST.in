@@ -1,0 +1,4 @@
+include README.md
+include LICENSE
+include NOTICE
+recursive-include src/mathtypejx/mtef/xslt *.xsl *.xml *.rng LICENSE README.md

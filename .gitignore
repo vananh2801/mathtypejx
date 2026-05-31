@@ -1,0 +1,33 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Local/private corpora and generated conversion outputs
+out/
+_cmp/
+_debug_fail/
+_ole_test_results/
+*.tmp
+*.log
+*.doc
+*.docx
+
+# Rust/build artifacts from the private workspace should not appear here.
+rust/target/
+target/
+
+# Local editor/tool state
+.idea/
+.vscode/
+.claude/

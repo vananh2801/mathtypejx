@@ -1,0 +1,28 @@
+mathtypejx
+==========
+
+This repository contains the Python MathType OLE parsing/conversion package
+extracted from a private research workspace. Large document corpora, generated
+outputs, local build products, and private debugging artifacts are intentionally
+excluded from this public repository.
+
+Third-party notices
+-------------------
+
+The font map assets in:
+
+  src/mathtypejx/mtef/xslt/xsl/fontmaps
+
+include upstream material with this copyright notice:
+
+  Copyright (c) 2018-2024, transpect.io
+  All rights reserved.
+
+Those files are distributed under the BSD-style terms preserved in:
+
+  src/mathtypejx/mtef/xslt/xsl/fontmaps/LICENSE
+
+Some parser modules and XSLT-facing transforms were implemented by studying
+the public behavior and structure of existing MathType-to-MathML tooling.
+Their source comments may mention those compatibility targets so future
+maintainers can understand the data model being matched.
