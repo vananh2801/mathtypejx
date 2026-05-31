@@ -13,6 +13,26 @@ The core MathType Equation Format (MTEF) parser is implemented in Python. The fi
 - Replace OLE objects in the `.docx` XML with native Word math.
 - Provide per-formula validation and conversion reports.
 
+## Development and Validation Background
+
+`mathtypejx` was developed primarily against Chinese Gaokao physics exam documents, where old Word files often contain MathType OLE formulas rather than native OMML. The private validation corpus is not redistributed in this repository, but the development run that drove the parser covered a 344-document Chinese physics exam corpus with 7,888 MathType OLE formulas. A normalized comparison against the Ruby-based pipeline recorded 7,886/7,888 MathML and OMML matches; the two differences were overbar formulas where the Python path preserved the base character that the Ruby path dropped.
+
+The formulas exercised in that corpus include common high-school physics notation such as fractions, roots, superscripts/subscripts, isotope-style prescripts, vectors, overbars/underbars, hats/tildes/arcs, large operators, limits, bracketed expressions, matrices, stacked equations, boxed or crossed-out terms, long division, color/font records, and text-mode physical units such as `kg*m/s`.
+
+The code also includes defensive handling for failures that appeared while processing those documents:
+
+- Missing or unreadable OLE binaries are marked failed and left in place.
+- Multiple MathType stream names are tried: `Equation Native`, `EquationNative`, and `Equation`.
+- MTEF v3 and v5 records are parsed separately, with future/comment records skipped safely when possible.
+- `EQN_PREFS` nibble-packed data is bounded and includes recovery logic for over-consumption that can otherwise hide the equation body.
+- Top-level `PILE` and `MATRIX` records are accepted, and their internal `LINE` records are converted into the slot shape expected by the bundled XSLT.
+- Subscript/superscript movement handles parenthesized bases, isotope-style preceding scripts, invisible MathType spacing, and per-formula mover state isolation.
+- Text-mode characters are wrapped as MathML tokens so overbars and other embellishments keep their base character.
+- MathML normalization fixes missing namespaces, bare text inside containers, empty root-degree cases, and `mtext` baseline issues before OMML conversion.
+- OMML quality checks block replacements with empty critical slots, token loss, structure loss, matrix row/cell loss, delimiter loss, accent/bar loss, n-ary limit loss, or malformed XML.
+- Unsupported-character noise from `MML2OMML.XSL` is stripped from generated OMML where possible.
+- Failed conversions keep the original OLE object in the output document, and the report preserves per-formula status, risk level, warnings, and errors.
+
 ## Install
 
 ```powershell
