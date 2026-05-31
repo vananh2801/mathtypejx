@@ -75,6 +75,17 @@ print(report.succeeded, report.failed)
 - OMML output requires an available `MML2OMML.XSL`.
 - Public tests use tiny binary OLE fixtures and synthetic documents; large private exam corpora are intentionally not included.
 
+## Acknowledgements
+
+This project builds on the public MathType-to-MathML work that came before it:
+
+- [`jure/mathtype`](https://github.com/jure/mathtype) and [`sbulka/mathtype`](https://github.com/sbulka/mathtype), Ruby implementations for reading MathType binaries and representing MTEF as XML.
+- [`jure/mathtype_to_mathml`](https://github.com/jure/mathtype_to_mathml), which provides the original XSLT-based MTEF XML to MathML conversion approach.
+- [`transpect/mathtype-extension`](https://github.com/transpect/mathtype-extension), whose public documentation and bundled fontmaps/XSLT ecosystem helped clarify the conversion pipeline.
+- The `mathtype_to_mathml_plus` Ruby gem, which combines the `mathtype` gem and XSLTs into a MathType binary to MathML conversion flow.
+
+`mathtypejx` is a Python implementation and packaging of this conversion path for `.docx` to OMML workflows, not an original discovery of the MTEF conversion model.
+
 ## License
 
 Project code is released under the MIT License. Bundled font map assets under `src/mathtypejx/mtef/xslt/xsl/fontmaps` retain their upstream BSD-style notice; see `NOTICE` and the upstream `LICENSE` file in that directory.
