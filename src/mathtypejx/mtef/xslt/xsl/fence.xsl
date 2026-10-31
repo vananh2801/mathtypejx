@@ -101,6 +101,23 @@
         <mrow><mo>(</mo> <xsl:apply-templates select="slot[1] | pile[1]"/> <mo>]</mo></mrow>
     </xsl:template>
 
+    <!-- Interval without a variation code: the delimiters are stored as the
+         first and second characters of slot[2] (e.g. "(" and "]"). Fall back
+         to plain parentheses if they are not there. -->
+    <xsl:template priority="0.25" match="tmpl[selector='tmINTERVAL' and not(variation[starts-with(., 'tvINTV')])]">
+        <mrow>
+            <xsl:choose>
+                <xsl:when test="slot[2]/*[not(self::options)][1]"><xsl:apply-templates select="slot[2]/*[not(self::options)][1]"/></xsl:when>
+                <xsl:otherwise><mo>(</mo></xsl:otherwise>
+            </xsl:choose>
+            <xsl:apply-templates select="slot[1] | pile[1]"/>
+            <xsl:choose>
+                <xsl:when test="slot[2]/*[not(self::options)][2]"><xsl:apply-templates select="slot[2]/*[not(self::options)][2]"/></xsl:when>
+                <xsl:otherwise><mo>)</mo></xsl:otherwise>
+            </xsl:choose>
+        </mrow>
+    </xsl:template>
+
     <xsl:template match="tmpl[selector='tmBRACK' and variation='tvFENCE_L' and not(variation='tvFENCE_R')]">
         <mrow> <mo>[</mo> <xsl:apply-templates select="slot[1] | pile[1]"/> </mrow>
     </xsl:template>

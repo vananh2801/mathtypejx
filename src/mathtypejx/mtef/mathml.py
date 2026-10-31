@@ -59,6 +59,22 @@ def _mtef_to_mathml_impl(ole_data: bytes) -> str | None:
     except Exception:
         mtef_data = mtef_raw
 
+    return mtef_data_to_mathml(mtef_data)
+
+
+def mtef_data_to_mathml(mtef_data: bytes) -> str | None:
+    """Convert raw MTEF bytes (no OLE container / 28-byte header) to MathML.
+
+    Used for formulas whose MTEF is stored in the comment records of a
+    WMF picture instead of an OLE object.
+    """
+    try:
+        return _mtef_data_to_mathml_impl(mtef_data)
+    except Exception:
+        return None
+
+
+def _mtef_data_to_mathml_impl(mtef_data: bytes) -> str | None:
     if len(mtef_data) < 2:
         return None
 

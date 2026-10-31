@@ -10,4 +10,4 @@ Usage:
     # => "<math xmlns='http://www.w3.org/1998/Math/MathML'>...</math>"
 """
 
-from .mathml import mtef_to_mathml
+from .mathml import mtef_data_to_mathml, mtef_to_mathml

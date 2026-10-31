@@ -88,6 +88,8 @@ def _move_following_subsup(root: etree._Element) -> None:
             _add_precedes_variation(el)
             following = _filter_base_candidates(_get_following_siblings(el))
             if not following:
+                # The template is now marked PRECEDES, so the second pass
+                # (_move_preceding_subsup) adds the empty base slot.
                 continue
             node = etree.Element("slot")
             _move_into(following[0], node)
@@ -132,6 +134,7 @@ def _move_preceding_subsup(root: etree._Element) -> None:
             preceding = _filter_base_candidates(
                 _get_new_preceding_siblings(el))
             if not preceding:
+                _insert_before_slot(el, etree.Element("slot"))
                 continue
             node = etree.Element("slot")
             _move_into(preceding[-1], node)

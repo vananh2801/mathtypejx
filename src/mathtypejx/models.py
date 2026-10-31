@@ -69,6 +69,7 @@ class FormulaInfo:
     quality_warnings: list[str] = field(default_factory=list)
 
     # Metadata
+    source: str = "ole"                      # "ole" or "picture" (MTEF inside a WMF)
     is_inline: bool = True                   # True = inline formula, False = display
 
 

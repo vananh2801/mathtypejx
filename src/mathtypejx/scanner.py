@@ -1,6 +1,7 @@
 """Scanner: scan a docx file for MathType OLE formula objects."""
 
 import shutil
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -44,10 +45,41 @@ XML_PARTS = [
 ]
 
 
+def _read_member_lenient(z: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
+    """Read a zip member ignoring a bad CRC (damaged images are common)."""
+    import struct
+    import zlib
+
+    z.fp.seek(info.header_offset)
+    header = z.fp.read(30)
+    name_len, extra_len = struct.unpack("<HH", header[26:30])
+    z.fp.seek(info.header_offset + 30 + name_len + extra_len)
+    raw = z.fp.read(info.compress_size)
+    if info.compress_type == zipfile.ZIP_STORED:
+        return raw
+    d = zlib.decompressobj(-15)
+    try:
+        return d.decompress(raw) + d.flush()
+    except zlib.error:
+        return b""
+
+
 def _unzip_docx(docx_path: Path, workdir: Path) -> None:
-    """Extract docx (ZIP) contents to workdir."""
+    """Extract docx (ZIP) contents to workdir.
+
+    A member with a bad CRC (e.g. a corrupted embedded image) is extracted
+    leniently instead of aborting the whole document.
+    """
     with zipfile.ZipFile(docx_path, "r") as z:
-        z.extractall(workdir)
+        for info in z.infolist():
+            try:
+                z.extract(info, workdir)
+            except zipfile.BadZipFile:
+                target = Path(workdir) / info.filename
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(_read_member_lenient(z, info))
+                print(f"    ! Cảnh báo: '{info.filename}' bị lỗi CRC trong file "
+                      f"gốc (đã đọc bỏ qua lỗi)", file=sys.stderr)
 
 
 def _rels_path_for_part(part_name: str) -> str:

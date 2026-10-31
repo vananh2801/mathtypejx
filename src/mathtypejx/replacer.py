@@ -70,6 +70,9 @@ def replace_formulas(
 
         _replace_in_part(part_path, part_formulas)
 
+    # Drop OLE objects / preview images that nothing references any more
+    _remove_orphaned_parts(workdir)
+
     # Update [Content_Types].xml
     _update_content_types(workdir)
 
@@ -85,14 +88,23 @@ def _replace_in_part(part_path: Path, formulas: list[FormulaInfo]) -> None:
     tree = etree.parse(str(part_path), parser)
     root = tree.getroot()
 
-    # Build rid → FormulaInfo map (only for CONVERTED formulas)
+    # Build rid → FormulaInfo maps (only for CONVERTED formulas)
     rid_to_formula: dict[str, FormulaInfo] = {}
+    rid_to_picture: dict[str, FormulaInfo] = {}
     for f in formulas:
         if f.status == FormulaStatus.CONVERTED:
-            rid_to_formula[f.relationship_id] = f
+            if f.source == "picture":
+                rid_to_picture[f.relationship_id] = f
+            else:
+                rid_to_formula[f.relationship_id] = f
 
-    if not rid_to_formula:
+    if not rid_to_formula and not rid_to_picture:
         return
+
+    NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+    holder_tags = {
+        f"{{{NS_W}}}object", f"{{{NS_W}}}pict", f"{{{NS_W}}}drawing",
+    }
 
     # Group OLEObjects by their parent w:r.
     # Multiple formulas can share the same <w:r>; replacing one run
@@ -101,19 +113,29 @@ def _replace_in_part(part_path: Path, formulas: list[FormulaInfo]) -> None:
     run_oles: dict[int, list[tuple[object, FormulaInfo]]] = {}
     run_map: dict[int, object] = {}  # id(run) → run element
     for ole_elem in root.iter():
-        if ole_elem.tag != f"{{{NS_O}}}OLEObject":
+        if ole_elem.tag == f"{{{NS_O}}}OLEObject":
+            rid = ole_elem.get(f"{{{NS_R}}}id", "")
+            formula = rid_to_formula.get(rid)
+        elif ole_elem.tag in (f"{{{NS_V}}}imagedata", f"{{{NS_A}}}blip"):
+            if ole_elem.tag.endswith("}blip"):
+                rid = ole_elem.get(f"{{{NS_R}}}embed", "")
+            else:
+                rid = ole_elem.get(f"{{{NS_R}}}id", "")
+            formula = rid_to_picture.get(rid)
+            if formula is not None:
+                holder = ole_elem
+                while holder is not None and holder.tag not in holder_tags:
+                    holder = holder.getparent()
+                if holder is None or holder.find(f".//{{{NS_O}}}OLEObject") is not None:
+                    continue  # preview image of a real OLE object
+        else:
             continue
-        rid = ole_elem.get(f"{{{NS_R}}}id", "")
-        formula = rid_to_formula.get(rid)
         if formula is None:
             continue
 
-        # Walk up to find w:object or w:pict
+        # Walk up to find w:object / w:pict / w:drawing
         obj_elem = ole_elem
-        while obj_elem is not None and (
-            obj_elem.tag != f"{{{NS_W}}}object"
-            and obj_elem.tag != f"{{{NS_W}}}pict"
-        ):
+        while obj_elem is not None and obj_elem.tag not in holder_tags:
             obj_elem = obj_elem.getparent()
 
         if obj_elem is None:
@@ -267,6 +289,84 @@ def _do_replace(ole_elem, formula: FormulaInfo) -> bool:
         return False
 
     return False
+
+
+_REMOVABLE_REL_TYPES = ("/oleObject", "/image", "/package")
+
+
+def _remove_orphaned_parts(workdir: Path) -> None:
+    """Delete OLE objects and preview images no longer used after replacement.
+
+    After a formula is replaced by OMML its relationship, the embedded
+    ``oleObjectN.bin`` and the WMF/EMF preview image are dead weight.
+    Only relationships that are no longer referenced from their part are
+    removed, and only files that no remaining relationship points to.
+    """
+    pkg_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+    word = workdir / "word"
+    rels_dir = word / "_rels"
+    if not rels_dir.is_dir():
+        return
+
+    candidates: set[Path] = set()  # files whose rel was removed
+    for rels_file in sorted(rels_dir.glob("*.rels")):
+        part_file = word / rels_file.name[: -len(".rels")]
+        if not part_file.exists():
+            continue
+        part_text = part_file.read_text(encoding="utf-8", errors="ignore")
+        try:
+            tree = etree.parse(str(rels_file))
+        except etree.XMLSyntaxError:
+            continue
+        root = tree.getroot()
+        changed = False
+        for rel in list(root):
+            if rel.tag != f"{{{pkg_ns}}}Relationship":
+                continue
+            if rel.get("TargetMode") == "External":
+                continue
+            rtype = rel.get("Type", "")
+            if not rtype.endswith(_REMOVABLE_REL_TYPES):
+                continue
+            rid = rel.get("Id", "")
+            if f'"{rid}"' in part_text:
+                continue  # still referenced
+            target = (part_file.parent / rel.get("Target", "")).resolve()
+            candidates.add(target)
+            root.remove(rel)
+            changed = True
+        if changed:
+            rels_file.write_bytes(
+                etree.tostring(root, encoding="utf-8",
+                               xml_declaration=True, standalone=True)
+            )
+
+    if not candidates:
+        return
+
+    # Keep any file that some remaining relationship (anywhere) still uses.
+    still_used: set[Path] = set()
+    for rels_file in workdir.rglob("*.rels"):
+        base = rels_file.parent.parent  # folder of the owning part
+        try:
+            root = etree.parse(str(rels_file)).getroot()
+        except etree.XMLSyntaxError:
+            continue
+        for rel in root:
+            if getattr(rel, "get", None) and rel.get("TargetMode") != "External":
+                tgt = rel.get("Target", "")
+                if tgt.startswith("/"):
+                    still_used.add((workdir / tgt.lstrip("/")).resolve())
+                else:
+                    still_used.add((base / tgt).resolve())
+
+    workdir_r = workdir.resolve()
+    for f in candidates:
+        if f in still_used or not f.is_file():
+            continue
+        if workdir_r not in f.parents:
+            continue
+        f.unlink()
 
 
 def _update_content_types(workdir: Path) -> None:

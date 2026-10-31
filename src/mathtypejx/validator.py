@@ -25,7 +25,7 @@ _EMPTY_SLOT_TAGS = {"e", "sub", "sup", "num", "den", "deg", "lim", "fName", "chr
 
 # Empty expression slots can be valid in structures such as matrix cells.
 # Empty sub/sup slots silently drop script content and must remain blocking.
-_ACCEPTABLE_EMPTY_SLOTS = {"e"}
+_ACCEPTABLE_EMPTY_SLOTS = {"e", "lim"}
 
 # Empty sub/sup are valid placeholders inside sPre (prescripts) and
 # sSubSup when only one of the pair is present (e.g. isotope notation
@@ -33,9 +33,9 @@ _ACCEPTABLE_EMPTY_SLOTS = {"e"}
 _SLOTS_ACCEPTABLE_EMPTY_IN = {"sPre", "sSubSup"}
 _STRUCTURE_RULES = {
     "mfrac": ("f",),
-    "msub": ("sSub", "sSubSup"),
-    "msup": ("sSup", "sSubSup"),
-    "msubsup": ("sSubSup",),
+    "msub": ("sSub", "sSubSup", "nary"),
+    "msup": ("sSup", "sSubSup", "nary"),
+    "msubsup": ("sSubSup", "nary"),
     "msqrt": ("rad",),
     "mroot": ("rad",),
     # "mtable" and "mtr" omitted — MML2OMML.XSL matrix conversion is
@@ -180,7 +180,9 @@ def _deg_is_hidden(elem) -> bool:
         if isinstance(child.tag, str) and etree.QName(child).localname == "radPr":
             for prop in child:
                 if isinstance(prop.tag, str) and etree.QName(prop).localname == "degHide":
-                    if prop.get(f"{{{OMML_NS}}}val") == "on":
+                    # OMML on/off values: on, 1, true (absent val means on)
+                    val = prop.get(f"{{{OMML_NS}}}val")
+                    if val is None or val.lower() in ("on", "1", "true"):
                         return True
     return False
 
@@ -221,7 +223,36 @@ def _extract_omml_tokens(root) -> list[str]:
                 normalized = _normalize_token(token)
                 if normalized:
                     tokens.append(normalized)
+        elif qname.namespace == OMML_NS and qname.localname == "d":
+            # Delimiters live in m:dPr/m:begChr, m:endChr and m:sepChr
+            # (defaults: "(" and ")"), not in m:t text runs.
+            tokens.extend(_delimiter_tokens(elem))
     return tokens
+
+
+def _delimiter_tokens(d_elem) -> list[str]:
+    props = {}
+    for child in d_elem:
+        if isinstance(child.tag, str) and etree.QName(child).localname == "dPr":
+            for prop in child:
+                if isinstance(prop.tag, str):
+                    props[etree.QName(prop).localname] = prop.get(f"{{{OMML_NS}}}val")
+    n_items = sum(
+        1 for c in d_elem
+        if isinstance(c.tag, str) and etree.QName(c).localname == "e"
+    )
+    out = []
+    beg = props.get("begChr", "(")
+    end = props.get("endChr", ")")
+    sep = props.get("sepChr", "|")
+    for ch in (beg, end):
+        ch = _normalize_token(ch or "")
+        if ch:
+            out.append(ch)
+    sep = _normalize_token(sep or "")
+    if sep:
+        out.extend([sep] * max(n_items - 1, 0))
+    return out
 
 
 def _extract_omml_text(root) -> str:
