@@ -10,14 +10,6 @@ from .models import FormulaInfo, FormulaStatus, RiskLevel
 
 # MTEF parsing is handled by the native Python parser in mathtypejx.mtef.
 
-# Common XSL paths
-_DEFAULT_XSL_PATHS = [
-    Path(__file__).resolve().parent.parent.parent.parent / "MML2OMML.XSL",
-    Path("./MML2OMML.XSL"),
-    Path(r"C:\Program Files (x86)\Microsoft Office\root\Office16\MML2OMML.XSL"),
-    Path(r"C:\Program Files\Microsoft Office\root\Office16\MML2OMML.XSL"),
-]
-
 # MathML namespace
 MATHML_NS = "http://www.w3.org/1998/Math/MathML"
 
@@ -834,17 +826,65 @@ def _mathml_to_omml_python(mathml: str) -> Optional[str]:
 
 def _find_xsl(xsl_path: Optional[str] = None) -> Optional[Path]:
     """Find the MML2OMML.XSL file."""
+
+    # Try getting .xsl file from --xsl agrument
     if xsl_path:
         p = Path(xsl_path)
         if p.exists():
             return p
 
-    for p in _DEFAULT_XSL_PATHS:
+    # Try getting .xsl file from src
+    bundled = Path(__file__).resolve().parent / "MML2OMML.XSL"
+    if bundled.is_file():
+        return bundled
+
+    # Try getting .xsl file from current working directory
+    local_candidates = [
+        Path.cwd() / "MML2OMML.XSL",
+        Path(__file__).resolve().parents[2] / "MML2OMML.XSL",
+    ]
+    for candidate in local_candidates:
+        if candidate.is_file():
+            return candidate
+
+    # Try getting .xsl file from Microsoft Office
+    os_candidates: list[Path] = []
+
+    if sys.platform == "win32":
+        # Windows
+        prog_dirs = [
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        ]
+        office_vers = ["Office16", "Office15", "Office14", "Office12"]
+        for p_dir in prog_dirs:
+            if not p_dir:
+                continue
+            base = Path(p_dir) / "Microsoft Office"
+            for ver in office_vers:
+                os_candidates.append(base / "root" / ver / "MML2OMML.XSL")
+                os_candidates.append(base / ver / "MML2OMML.XSL")
+
+    elif sys.platform == "darwin":
+        # MacOS
+        os_candidates.extend([
+            Path("/Applications/Microsoft Word.app/Contents/Resources/MML2OMML.XSL"),
+            Path("/Library/Application Support/Microsoft/Office365/MML2OMML.XSL"),
+        ])
+
+    elif sys.platform.startswith("linux"):
+        # Linux
+        os_candidates.extend([
+            Path.home() / ".local" / "share" / "mathtypejx" / "MML2OMML.XSL",
+            Path("/usr/local/share/mathtypejx/MML2OMML.XSL"),
+            Path("/usr/share/mathtypejx/MML2OMML.XSL"),
+        ])
+
+    for p in os_candidates:
         if p.exists():
             return p
 
     return None
-
 
 def _assess_risk(mathml: str, omml: str) -> RiskLevel:
     """Assess replacement risk based on complexity and style-sensitive constructs."""
