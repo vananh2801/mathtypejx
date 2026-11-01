@@ -18,6 +18,7 @@ from .validator import (
     health_check,
     try_word_open,
 )
+from .service import convert_mathtype_to_omml
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -39,6 +40,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                        help="Try to open output with Word COM after conversion")
     conv.add_argument("--report", help="Write conversion report JSON to this path")
     conv.add_argument("--quiet", action="store_true", help="Suppress progress output")
+    conv.add_argument("-w", "--workers", type=int, default=8,
+                      help="Number of cpu threads (default: 8)")
+    conv.add_argument("--font", default="Cambria Math",
+                      help="Math font (default: Cambria Math)")
 
     # health command
     sub.add_parser("health", help="Check dependency availability")
@@ -63,129 +68,95 @@ def _cmd_convert(args) -> int:
 
     output_docx = Path(args.output).resolve()
 
-    log = lambda msg: None if args.quiet else print(f"  {msg}")
+    tasks: list[tuple[Path, Path]] = []
 
     # Phase 1: Scan
-    log("Scanning for MathType OLE formulas...")
-    workdir = None
-    try:
-        formulas, workdir = scan_docx(str(input_docx), workdir=args.workdir)
-    except Exception as e:
-        print(f"ERROR: Failed to scan docx: {e}", file=sys.stderr)
+    if input_docx.is_file():
+        # Single file
+        if output_docx.is_dir() or str(args.output).endswith(("/", "\\")):
+            output_docx.mkdir(parents=True, exist_ok=True)
+            dst_file = output_docx / input_docx.name
+        else:
+            dst_file = output_docx
+        tasks.append((input_docx, dst_file))
+
+    elif input_docx.is_dir():
+        # Whole folder
+        output_docx.mkdir(parents=True, exist_ok=True)
+        docx_files = [
+            f for f in sorted(input_docx.rglob("*.docx"))
+            if not f.name.startswith(("~$", ".")) and output_docx not in f.resolve().parents
+        ]
+        for src_file in docx_files:
+            rel = src_file.relative_to(input_docx)
+            dst_file = output_docx / rel
+            tasks.append((src_file, dst_file))
+
+    if not tasks:
+        print("ERROR: Failed to scan docx files.", file=sys.stderr)
         return 1
 
-    mathtype_formulas = [
-        f for f in formulas
-        if f.prog_id in ("Equation.DSMT4", "Equation.3", "Equation.2")
-    ]
-    log(f"Found {len(mathtype_formulas)} MathType/Equation Editor formulas "
-        f"({len(formulas)} total OLE objects)")
+    # Phase 2: Call service from service.py to process files
+    total_files = len(tasks)
+    total_formulas = 0
+    total_succeeded = 0
+    total_failed = 0
+    all_reports = []
 
-    if not mathtype_formulas:
-        log("No MathType formulas to convert. Creating copy of input.")
-        import shutil
-        shutil.copy2(str(input_docx), str(output_docx))
-        return 0
+    for i, (src, dst) in enumerate(tasks, 1):
+        if total_files > 1:
+            print(f"[{i}/{total_files}] Processing: {src.name}")
+        dst.parent.mkdir(parents=True, exist_ok=True)
 
-    # Phase 2: Extract MTEF from each OLE
-    for formula in mathtype_formulas:
-        log(f"Extracting: {formula.ole_name} (r:id={formula.relationship_id})")
-        ole_data = read_ole_binary(workdir, formula.ole_name)
-        formula.ole_data = ole_data
+        def _progress(phase, cur, total):
+            if not args.quiet:
+                print(f"  [{phase.upper()}] {cur}/{total}...", end="\r", flush=True)
 
-        if ole_data is None:
-            formula.status = FormulaStatus.FAILED
-            formula.error_message = f"OLE binary not found: {formula.ole_name}"
-            log(f"  FAILED: {formula.error_message}")
-            continue
-
-        ok = extract_mtef(formula)
-        if ok:
-            formula.mtef_version = detect_mtef_version(formula.mtef_bytes)
-            log(f"  Extracted MTEF v{formula.mtef_version} ({len(formula.mtef_bytes)} bytes)")
-        else:
-            log(f"  FAILED: {formula.error_message}")
-
-    # Phase 3: Convert MTEF → MathML → OMML
-    for formula in mathtype_formulas:
-        if formula.status != FormulaStatus.EXTRACTED:
-            continue
-        log(f"Converting: {formula.ole_name}")
         try:
-            ok = convert_formula(
-                formula,
+            report = convert_mathtype_to_omml(
+                str(src),
+                str(dst),
+                parallel=True,
+                max_workers=args.workers,
                 xsl_path=args.xsl,
+                math_font=args.font,
+                progress_callback=_progress,
             )
-            if ok:
-                log(f"  Converted → OMML (risk: {formula.risk_level.value})")
-            else:
-                log(f"  FAILED: {formula.error_message}")
+            total_formulas += report.total_ole_objects
+            total_succeeded += report.succeeded
+            total_failed += report.failed
+            all_reports.append(report.to_dict())
+
+            succeeded = report.succeeded
+            failed = report.failed
+            total = report.total_ole_objects
+            print(f"Conversion complete: {succeeded}/{total} succeeded, {failed} failed")
+
+            if not args.quiet:
+                failed_formulas = [f for f in report.formulas if f.status != FormulaStatus.REPLACED]
+                if failed_formulas:
+                    print(f"  -> Detail: {len(failed_formulas)} failed (keep OLE):")
+                    for f in failed_formulas:
+                        risk_tag = f.risk_level.value if f.risk_level != RiskLevel.AUTO_REPLACE else ""
+                        extra = f" [{risk_tag}]" if risk_tag else ""
+                        err = f" — {f.error_message}" if f.error_message else ""
+                        print(f"    ! [FAILED] {f.formula_id} ({f.ole_name}){extra}{err}")
+
         except Exception as e:
-            formula.status = FormulaStatus.FAILED
-            formula.error_message = str(e)
-            log(f"  FAILED: {e}")
+            print(f"  -> Failed: {e}", file=sys.stderr)
+            total_failed += 1
 
-    # Phase 4: Replace in docx
-    log("Replacing OLE objects with OMML in document XML...")
-    try:
-        replace_formulas(workdir, formulas, str(output_docx))
-    except Exception as e:
-        print(f"ERROR: Replacement failed: {e}", file=sys.stderr)
-        return 1
-
-    # Phase 5: Validate
-    log("Validating output docx...")
-    val_result = validate_output_docx(str(output_docx))
-    if not val_result["valid"]:
-        for err in val_result["errors"]:
-            log(f"  VALIDATION ERROR: {err}")
-
-    # Word COM validation
-    if args.word_validate:
-        log("Checking with Word COM...")
-        word_result = try_word_open(str(output_docx))
-        if word_result["opened"]:
-            log("  Word opened successfully")
-        else:
-            log(f"  Word check: {word_result['error']}")
-
-    # Report
-    report = make_report(str(input_docx), str(output_docx), formulas)
-    count_result = validate_formula_count(report)
-    log(f"Formula count conserved: {count_result['conserved']}")
-
+    # Phase 3: export report to file
     if args.report:
         report_path = Path(args.report)
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(
-            json.dumps(report.to_dict(), indent=2, ensure_ascii=False),
+            json.dumps(reports, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
         log(f"Report written to: {args.report}")
 
-    # Summary
-    succeeded = report.succeeded
-    failed = report.failed
-    total = len(mathtype_formulas)
-    print(f"\nConversion complete: {succeeded}/{total} succeeded, {failed} failed")
-
-    if not args.quiet:
-        for f in formulas:
-            marker = "OK" if f.status == FormulaStatus.REPLACED else f.status.value.upper()
-            risk_tag = f.risk_level.value if f.risk_level != RiskLevel.AUTO_REPLACE else ""
-            extra = f" [{risk_tag}]" if risk_tag else ""
-            err = f" — {f.error_message}" if f.error_message else ""
-            print(f"  [{marker}] {f.formula_id} {f.ole_name}{extra}{err}")
-
-    # Cleanup
-    if not args.keep_workdir and workdir is not None:
-        import shutil
-        try:
-            shutil.rmtree(workdir, ignore_errors=True)
-        except Exception:
-            pass
-
-    return 0 if failed == 0 else 2
+    return 0 if total_failed == 0 else 2
 
 
 def _cmd_health() -> int:

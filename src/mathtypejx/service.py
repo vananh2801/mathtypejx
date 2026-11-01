@@ -18,6 +18,7 @@ from .converter import convert_formula
 from .replacer import replace_formulas
 from .validator import validate_output_docx, make_report, validate_formula_count
 
+from .wmf import scan_picture_formulas
 
 # ── Public API ─────────────────────────────────────────────────
 
@@ -28,12 +29,14 @@ def convert_mathtype_to_omml(
     remove_edit_info: bool = True,
     parallel: bool = True,
     max_workers: int = 8,
+    xsl_path: Optional[str] = None,
+    math_font: Optional[str] = "Cambria Math",
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
 ) -> ConversionReport:
     """Convert all MathType OLE formulas in a Word docx to OMML.
 
     This is the single entry point. It handles everything:
-      1. Scan the docx for MathType OLE objects
+      1. Scan the docx for MathType OLE objects and WMF images
       2. Extract MTEF binary data from each OLE
       3. Convert MTEF → MathML (pure Python) → OMML (via XSLT)
       4. Replace OLE objects with OMML in the document XML
@@ -47,6 +50,7 @@ def convert_mathtype_to_omml(
         remove_edit_info: Strip 排版/校对/校正 lines from document.
         parallel: Use threaded parallel conversion for formulas.
         max_workers: Max threads for parallel conversion (default 8).
+        math_font: math font in equation (default Cambria Math)
         progress_callback: Optional callback(phase, current, total)
             called during conversion phases.
 
@@ -73,6 +77,8 @@ def convert_mathtype_to_omml(
         f for f in formulas
         if f.prog_id in ("Equation.DSMT4", "Equation.3", "Equation.2")
     ]
+    pics = scan_picture_formulas(workdir, start_counter=len(formulas))
+    mathtype_formulas.extend(pics)
 
     if not mathtype_formulas:
         shutil.copy2(str(input_path), str(output_path))
@@ -100,7 +106,7 @@ def convert_mathtype_to_omml(
 
     # ── Phase 3: Convert (parallel or serial) ─────────────
     if parallel and len(extracted) > 1:
-        _convert_parallel(extracted, max_workers, progress_callback)
+        _convert_parallel(extracted, max_workers, progress_callback, xsl_path=xsl_path, math_font=math_font)
     else:
         for i, formula in enumerate(extracted):
             try:
@@ -229,6 +235,8 @@ def _convert_parallel(
     formulas: list[FormulaInfo],
     max_workers: int,
     progress_callback=None,
+    xsl_path: Optional[str] = None,
+    math_font: Optional[str] = "Cambria Math",
 ) -> None:
     """Convert formulas in parallel using ThreadPoolExecutor.
 
@@ -243,7 +251,7 @@ def _convert_parallel(
 
     def convert_one(f):
         try:
-            convert_formula(f)
+            convert_formula(f, xsl_path=xsl_path, math_font=math_font)
         except Exception as e:
             f.status = FormulaStatus.FAILED
             f.error_message = str(e)
