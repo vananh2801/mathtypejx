@@ -78,8 +78,7 @@ def _unzip_docx(docx_path: Path, workdir: Path) -> None:
                 target = Path(workdir) / info.filename
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(_read_member_lenient(z, info))
-                print(f"    ! Cảnh báo: '{info.filename}' bị lỗi CRC trong file "
-                      f"gốc (đã đọc bỏ qua lỗi)", file=sys.stderr)
+                print(f"    ! Warning: CRC error in '{info.filename}' (skipped CRC check)", file=sys.stderr)
 
 
 def _rels_path_for_part(part_name: str) -> str:
