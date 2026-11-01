@@ -40,6 +40,7 @@ dev = [
 
 [tool.setuptools.package-data]
 mathtypejx = [
+    "resources/*",
     "mtef/xslt/**/*.xsl",
     "mtef/xslt/**/*.xml",
     "mtef/xslt/**/*.rng",

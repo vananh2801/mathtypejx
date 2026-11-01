@@ -1,6 +1,8 @@
 """Converter: MTEF → MathML → OMML conversion chain."""
 
 import re
+import os
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -833,9 +835,9 @@ def _find_xsl(xsl_path: Optional[str] = None) -> Optional[Path]:
         if p.exists():
             return p
 
-    # Try getting .xsl file from src
-    bundled = Path(__file__).resolve().parent / "MML2OMML.XSL"
-    if bundled.is_file():
+    # Try getting .xsl file from resources
+    bundled = Path(__file__).resolve().parent / "resources" / "MML2OMML.XSL"
+    if bundled.exists():
         return bundled
 
     # Try getting .xsl file from current working directory
@@ -844,7 +846,7 @@ def _find_xsl(xsl_path: Optional[str] = None) -> Optional[Path]:
         Path(__file__).resolve().parents[2] / "MML2OMML.XSL",
     ]
     for candidate in local_candidates:
-        if candidate.is_file():
+        if candidate.exists():
             return candidate
 
     # Try getting .xsl file from Microsoft Office
@@ -875,9 +877,9 @@ def _find_xsl(xsl_path: Optional[str] = None) -> Optional[Path]:
     elif sys.platform.startswith("linux"):
         # Linux
         os_candidates.extend([
-            Path.home() / ".local" / "share" / "mathtypejx" / "MML2OMML.XSL",
-            Path("/usr/local/share/mathtypejx/MML2OMML.XSL"),
-            Path("/usr/share/mathtypejx/MML2OMML.XSL"),
+            Path.home() / ".local" / "share" / "mathtypejx" / "resources" / "MML2OMML.XSL",
+            Path("/usr/local/share/mathtypejx/resources/MML2OMML.XSL"),
+            Path("/usr/share/mathtypejx/resources/MML2OMML.XSL"),
         ])
 
     for p in os_candidates:

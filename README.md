@@ -68,7 +68,8 @@ You can pass a custom XSL path with `--xsl`.
 ```powershell
 mathtypejx health
 mathtypejx convert input.docx -o output.docx
-mathtypejx convert input.docx -o output.docx --xsl "C:\path\to\MML2OMML.XSL"
+mathtypejx convert "path-to-input-folder" -o "path-to-output-folder"
+mathtypejx convert input.docx -o output.docx --xsl "path-to-custom-xsl-file"
 ```
 
 ## Python API
