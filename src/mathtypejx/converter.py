@@ -5,9 +5,16 @@ import os
 import sys
 from pathlib import Path
 from typing import Optional
-import mathml2omml
-
 from lxml import etree
+
+# Force Python to prioritize local packages inside src/ over site-packages
+SRC_DIR = Path(__file__).resolve().parent.parent
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+elif sys.path[0] != str(SRC_DIR):
+    sys.path.remove(str(SRC_DIR))
+    sys.path.insert(0, str(SRC_DIR))
+import mathml2omml
 
 from .models import FormulaInfo, FormulaStatus, RiskLevel
 
@@ -44,12 +51,18 @@ _SPOT_CHECK_TAGS = {
     "munder", "mover", "mfenced",
 }
 _NARY_OPERATORS = {"∑", "∏", "∫", "∮", "⋂", "⋃"}
-_FUNCTION_NAMES = {"sin", "cos", "tan", "log", "ln", "lim", "max", "min"}
+_FUNCTION_NAMES = {
+    "arcsin", "arccos", "arctan", "arccot",
+    "sinh", "cosh", "tanh", "coth",
+    "sin", "cos", "tan", "cot", "sec", "csc",
+    "log", "ln", "lg", "exp",
+    "lim", "max", "min", "det", "dim", "deg", "gcd",
+    "tg", "cotg",
+}
 
 
 def convert_formula(
     formula: FormulaInfo,
-    xsl_path: Optional[str] = None,
     math_font: Optional[str] = None,
 ) -> bool:
     """Run the full conversion chain for a single formula.
@@ -84,7 +97,7 @@ def convert_formula(
     formula.mathml = mathml
 
     # Step 3: MathML → OMML (via XSLT)
-    omml = _mathml_to_omml(mathml, xsl_path=xsl_path)
+    omml = _mathml_to_omml(mathml)
     if omml is None:
         formula.status = FormulaStatus.FAILED
         formula.error_message = "MathML to OMML conversion failed"
@@ -154,27 +167,15 @@ def _ole_to_mathml(
     from .mtef import mtef_to_mathml
     return mtef_to_mathml(ole_data)
 
-# Danh sách các hàm toán học phổ biến (sắp xếp từ dài đến ngắn để ưu tiên khớp trước)
-_MATH_FUNCTIONS = sorted([
-    "arcsin", "arccos", "arctan", "arccot",
-    "sinh", "cosh", "tanh", "coth",
-    "sin", "cos", "tan", "cot", "sec", "csc",
-    "log", "ln", "lg", "exp",
-    "lim", "max", "min", "det", "dim", "deg", "gcd",
-    "tg", "cotg",
-], key=len, reverse=True)
 
 def _normalize_functions_in_parent(parent: etree._Element) -> None:
-    """Gộp các thẻ <mi>s</mi><mi>i</mi><mi>n</mi> đứng liền nhau thành <mi mathvariant="normal">sin</mi>
-    và tự động chèn khoảng cách toán học mỏng (\\u2009) nếu phía sau là số/biến (vd: sin 3x).
-    """
+    """Join <mi>s</mi><mi>i</mi><mi>n</mi> to <mi mathvariant="normal">sin</mi>"""
     i = 0
     while i < len(parent):
         matched_fn = None
         matched_count = 0
 
-        # Thử khớp các hàm toán học bắt đầu từ vị trí con thứ i
-        for fn in _MATH_FUNCTIONS:
+        for fn in sorted(_FUNCTION_NAMES, key=len, reverse=True):
             fn_len = len(fn)
             current_text = ""
             count = 0
@@ -197,51 +198,30 @@ def _normalize_functions_in_parent(parent: etree._Element) -> None:
                 break
 
         if matched_fn and matched_count > 0:
-            # Kiểm tra xem có cần chèn khoảng cách mỏng (\u2009) phía sau tên hàm không
-            add_space = False
-            next_idx = i + matched_count
-            if next_idx < len(parent):
-                next_elem = parent[next_idx]
-                if isinstance(next_elem.tag, str):
-                    next_loc = _local_name(next_elem)
-                    next_text = (next_elem.text or "").strip()
-                    # Không chèn khoảng cách nếu ngay sau là dấu ngoặc mở hoặc đã có dấu cách
-                    if next_loc == "mo" and next_text in ("(", "[", "{", "|", "（", "【"):
-                        add_space = False
-                    elif next_text.startswith(("\u00a0", "\u2009", " ")):
-                        add_space = False
-                    elif next_loc in ("mn", "mi", "mfrac", "msqrt", "mroot"):
-                        # Ví dụ: sin đi liền với 3x, 2x, x -> cần cách ra: sin 3x
-                        add_space = True
-                    elif next_loc == "mo" and next_text and next_text not in (",", ";", ".", ")", "]", "}", "）", "】"):
-                        add_space = True
-
-            # Tạo thẻ <mi> chuẩn toán học: thẳng đứng (mathvariant="normal")
             fn_elem = etree.Element(f"{{{MATHML_NS}}}mi")
             fn_elem.set("mathvariant", "normal")
-            fn_elem.text = matched_fn + ("\u2009" if add_space else "")
-
-            # Giữ lại tail text nếu có
+            fn_elem.text = matched_fn
             fn_elem.tail = parent[i + matched_count - 1].tail
 
-            # Xóa các thẻ cũ bị tách lẻ và chèn thẻ hàm mới vào
             for _ in range(matched_count):
                 parent.remove(parent[i])
             parent.insert(i, fn_elem)
+
             i += 1
         else:
             i += 1
 
 
 def _normalize_functions(elem: etree._Element) -> None:
-    """Duyệt đệ quy toàn bộ cây MathML để chuẩn hóa tất cả các hàm toán học."""
+    """Normalize functions."""
     for child in list(elem):
         _normalize_functions(child)
     if len(elem) > 0:
         _normalize_functions_in_parent(elem)
 
+
 def _normalize_function_scripts_in_parent(parent: etree._Element) -> None:
-    """Gộp các tiền tố bị bỏ rơi vào cơ số của số mũ/chỉ số (vd: s + i + n^6 -> (sin)^6)."""
+    """Normalize function with scripts."""
     i = 0
     while i < len(parent):
         child = parent[i]
@@ -255,15 +235,12 @@ def _normalize_function_scripts_in_parent(parent: etree._Element) -> None:
                 base_elem = child[0]
                 base_text = "".join(base_elem.itertext()).strip()
 
-                # Nếu bản thân base_elem đã là hàm hoàn chỉnh (vd: <msup><mi>sin</mi><mn>2</mn></msup>)
-                if base_text.lower() in _MATH_FUNCTIONS:
+                if base_text.lower() in _FUNCTION_NAMES:
                     if _local_name(base_elem) == "mi":
                         base_elem.set("mathvariant", "normal")
-                    _add_script_trailing_space(parent, i, child)
                     i += 1
                     continue
 
-                # Tìm các ký tự đứng liền trước child (vd: 's', 'i' đứng trước 'n^6')
                 prefix_items = []
                 j = i - 1
                 while j >= 0:
@@ -281,33 +258,27 @@ def _normalize_function_scripts_in_parent(parent: etree._Element) -> None:
                         break
                     j -= 1
 
-                # Thử ghép các tiền tố với ký tự cơ số xem có tạo thành tên hàm không
                 matched_fn = None
                 matched_prefix_count = 0
                 for start_k in range(len(prefix_items)):
                     candidate = "".join(t for _, t in prefix_items[start_k:]) + base_text
-                    if candidate.lower() in _MATH_FUNCTIONS:
+                    if candidate.lower() in _FUNCTION_NAMES:
                         matched_fn = candidate.lower()
                         matched_prefix_count = len(prefix_items) - start_k
                         break
 
                 if matched_fn:
-                    # Xóa các ký tự tiền tố thừa đứng trước (xóa 's', 'i')
                     del_start = i - matched_prefix_count
                     for _ in range(matched_prefix_count):
                         parent.remove(parent[del_start])
 
                     child_idx = del_start
 
-                    # Thay thế cơ số cũ ('n') bằng cả hàm chuẩn: <mi mathvariant="normal">sin</mi>
                     new_base = etree.Element(f"{{{MATHML_NS}}}mi")
                     new_base.set("mathvariant", "normal")
                     new_base.text = matched_fn
                     new_base.tail = base_elem.tail
                     child.replace(base_elem, new_base)
-
-                    # Tự động chèn khoảng cách mỏng sau số mũ nếu phía sau là biến (vd: sin^6 x)
-                    _add_script_trailing_space(parent, child_idx, child)
 
                     i = child_idx + 1
                     continue
@@ -315,40 +286,20 @@ def _normalize_function_scripts_in_parent(parent: etree._Element) -> None:
         i += 1
 
 
-def _add_script_trailing_space(parent: etree._Element, idx: int, elem: etree._Element) -> None:
-    """Tự động thêm khoảng cách mỏng (\\u2009) sau số mũ nếu liền sau là biến/số (vd: sin^6 x)."""
-    next_idx = idx + 1
-    if next_idx < len(parent):
-        next_elem = parent[next_idx]
-        if isinstance(next_elem.tag, str):
-            next_loc = _local_name(next_elem)
-            next_txt = (next_elem.text or "").strip()
-            # Không cách nếu phía sau là dấu ngoặc đóng hoặc dấu chấm/phẩy
-            if next_loc == "mo" and next_txt in (")", "]", "}", ",", ";", ".", "）", "】"):
-                return
-            if next_txt.startswith(("\u00a0", "\u2009", " ")):
-                return
-            if next_loc in ("mn", "mi", "mfrac", "msqrt", "mroot") or (
-                next_loc == "mo" and next_txt not in ("(", "[", "{", "|")
-            ):
-                if not (elem.tail or "").startswith(("\u00a0", "\u2009", " ")):
-                    elem.tail = "\u2009" + (elem.tail or "")
-
-
 def _normalize_function_scripts(elem: etree._Element) -> None:
-    """Duyệt đệ quy toàn bộ cây để sửa tất cả các hàm có số mũ / chỉ số."""
+    """Normalize function with scripts"""
     for child in list(elem):
         _normalize_function_scripts(child)
     if len(elem) > 0:
         _normalize_function_scripts_in_parent(elem)
 
 def _normalize_mathml(mathml: str) -> str:
-    """Normalize MathML before XSLT conversion.
+    """Normalize MathML before converting with mathml2omml.
 
     Fixes:
     - XML declaration parsing quirks
     - Missing real MathML namespaces on elements
-    - Bare text in container elements that Office XSLT otherwise drops
+    - Bare text in container elements that mathml2omml otherwise drops
     - Empty root degree → msqrt conversion
     """
     try:
@@ -574,12 +525,7 @@ def _normalize_root_degree(root) -> None:
                 parent.remove(mroot)
                 parent.insert(idx, msqrt)
 
-# Biến cache toàn cục lưu transformer XSLT
-_CACHED_XSLT_TRANSFORM = None
-_CACHED_XSLT_PATH = None
-
-def _mathml_to_omml(mathml: str, xsl_path: Optional[str] = None) -> Optional[str]:
-    global _CACHED_XSLT_TRANSFORM, _CACHED_XSLT_PATH
+def _mathml_to_omml(mathml: str) -> Optional[str]:
     """Convert MathML to OMML."""
 
     try:
@@ -592,6 +538,9 @@ def _mathml_to_omml(mathml: str, xsl_path: Optional[str] = None) -> Optional[str
         marks = _extract_accents(root)
         etree.cleanup_namespaces(root)
         clean = etree.tostring(root, encoding="unicode")
+        # Strip malignmark and maligngroup before passing to mathml2omml
+        # clean = re.sub(r'<(m:)?(malignmark|maligngroup)[^>]*/>', '', clean)
+        # clean = re.sub(r'<(m:)?(malignmark|maligngroup)[^>]*>.*?</\1>', '', clean)
         omml = mathml2omml.convert(clean)
         if not omml:
             return None
@@ -881,8 +830,7 @@ def _clean_omml_unsupported(omml: str) -> str:
 
 def convert_mathml_file_to_omml(
     mathml_path: str,
-    xsl_path: Optional[str] = None,
 ) -> Optional[str]:
     """Convert a MathML file to OMML (utility for testing)."""
     mathml = Path(mathml_path).read_text(encoding="utf-8")
-    return _mathml_to_omml(mathml, xsl_path=xsl_path)
+    return _mathml_to_omml(mathml)

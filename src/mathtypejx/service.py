@@ -29,7 +29,6 @@ def convert_mathtype_to_omml(
     remove_edit_info: bool = True,
     parallel: bool = True,
     max_workers: int = 8,
-    xsl_path: Optional[str] = None,
     math_font: Optional[str] = "Cambria Math",
     progress_callback: Optional[Callable[[str, int, int], None]] = None,
 ) -> ConversionReport:
@@ -106,7 +105,7 @@ def convert_mathtype_to_omml(
 
     # ── Phase 3: Convert (parallel or serial) ─────────────
     if parallel and len(extracted) > 1:
-        _convert_parallel(extracted, max_workers, progress_callback, xsl_path=xsl_path, math_font=math_font)
+        _convert_parallel(extracted, max_workers, progress_callback, math_font=math_font)
     else:
         for i, formula in enumerate(extracted):
             try:
@@ -235,7 +234,6 @@ def _convert_parallel(
     formulas: list[FormulaInfo],
     max_workers: int,
     progress_callback=None,
-    xsl_path: Optional[str] = None,
     math_font: Optional[str] = "Cambria Math",
 ) -> None:
     """Convert formulas in parallel using ThreadPoolExecutor.
@@ -251,7 +249,7 @@ def _convert_parallel(
 
     def convert_one(f):
         try:
-            convert_formula(f, xsl_path=xsl_path, math_font=math_font)
+            convert_formula(f, math_font=math_font)
         except Exception as e:
             f.status = FormulaStatus.FAILED
             f.error_message = str(e)

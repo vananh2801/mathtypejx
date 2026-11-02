@@ -655,9 +655,4 @@ def health_check() -> dict:
         except ImportError:
             checks[f"python-{pkg}"] = "missing"
 
-    # MML2OMML.XSL
-    from .converter import _find_xsl
-    xsl_path = _find_xsl()
-    checks["MML2OMML.XSL"] = ("ok:" + str(xsl_path)) if xsl_path else "missing"
-
     return checks

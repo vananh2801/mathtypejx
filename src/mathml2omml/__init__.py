@@ -747,7 +747,7 @@ class MUnder(NaryableElement):
                     '<m:groupChrPr>'
                     '<m:chr m:val="%s"/>'
                     '<m:pos m:val="bot"/>'
-                    '</m:groupChr>'
+                    '</m:groupChrPr>'
                     '%s'
                     '</m:groupChr>') % (underscript.escape_text(), base)
         return ('<m:limLow>'
@@ -784,7 +784,7 @@ class MOver(NaryableElement):
                     '<m:groupChrPr>'
                     '<m:chr m:val="%s"/>'
                     '<m:pos m:val="top"/>'
-                    '</m:groupChr>'
+                    '</m:groupChrPr>'
                     '%s'
                     '</m:groupChr>') % (overscript.escape_text(), base)
         return ('<m:limUpp>'
@@ -1043,8 +1043,8 @@ class MathMLHandler(xml.sax.handler.ContentHandler):
         MTable, MTableRow, MTableData,
         MAction,
         ))
-    IGNORED_ELEMENTS = ('annotation-xml', 'annotation')
-    SKIPPED_ELEMENTS = ('semantics', 'malignmark', 'maligngroup')
+    IGNORED_ELEMENTS = ('annotation-xml', 'annotation', 'malignmark', 'maligngroup')
+    SKIPPED_ELEMENTS = ('semantics')
 
     def __init__(self):
         super(MathMLHandler, self).__init__()
