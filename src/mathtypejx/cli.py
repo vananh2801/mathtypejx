@@ -33,7 +33,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     conv.add_argument("input", help="Input .docx file path")
     conv.add_argument("-o", "--output", required=True, help="Output .docx file path")
     conv.add_argument("--workdir", help="Working directory (temp if not specified)")
-    conv.add_argument("--xsl", help="Path to MML2OMML.XSL")
     conv.add_argument("--keep-workdir", action="store_true",
                        help="Do not clean up working directory after conversion")
     conv.add_argument("--word-validate", action="store_true",
@@ -118,7 +117,6 @@ def _cmd_convert(args) -> int:
                 str(dst),
                 parallel=True,
                 max_workers=args.workers,
-                xsl_path=args.xsl,
                 math_font=args.font,
                 progress_callback=_progress,
             )

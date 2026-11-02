@@ -40,12 +40,10 @@ Acknowledged upstream projects:
     Ruby gem that converts MathType binary equations to MathML by using the
     mathtype gem followed by XSLT conversion.
 
-Microsoft Office MML2OMML.XSL:
-    File: src/mathtypejx/resources/MML2OMML.XSL (or MML2OMML.XSL)
-    Copyright (c) Microsoft Corporation. All rights reserved.
-    This file is a third-party stylesheet property of Microsoft Corporation.
-    It is NOT licensed under the MIT License of this repository.
-    It is included solely for interoperability purposes.
+  mathml2omml
+    https://github.com/amedama41/mathml2omml
+    Python library to convert MathML to OMML (Office Math Markup Language).
+    MIT License.
 
 The font map assets in:
 

@@ -113,13 +113,13 @@ class TestMathMLToOMML:
     def test_simple_conversion(self):
         omml = _mathml_to_omml(SIMPLE_MATHML)
         if omml is None:
-            pytest.skip("MML2OMML.XSL not available")
+            pytest.skip("Failed")
         assert "oMath" in omml
 
     def test_complex_conversion(self):
         omml = _mathml_to_omml(COMPLEX_MATHML)
         if omml is None:
-            pytest.skip("MML2OMML.XSL not available")
+            pytest.skip("Failed")
         assert "oMath" in omml
 
     @pytest.mark.parametrize("mathml", [
@@ -130,7 +130,7 @@ class TestMathMLToOMML:
     def test_style_smoke_conversion_quality(self, mathml):
         omml = _mathml_to_omml(mathml)
         if omml is None:
-            pytest.skip("MML2OMML.XSL not available")
+            pytest.skip("Failed")
         assert "oMath" in omml
         quality = validate_conversion_quality(mathml, omml)
         assert quality["valid"], quality["errors"]
@@ -142,7 +142,7 @@ class TestMathMLToOMML:
     def test_style_smoke_conversion_reports_quality(self, mathml):
         omml = _mathml_to_omml(mathml)
         if omml is None:
-            pytest.skip("MML2OMML.XSL not available")
+            pytest.skip("Failed")
         assert "oMath" in omml
         quality = validate_conversion_quality(mathml, omml)
         assert "valid" in quality

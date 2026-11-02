@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Optional
+import mathml2omml
 
 from lxml import etree
 
@@ -55,7 +56,6 @@ def convert_formula(
 
     Args:
         formula: FormulaInfo with ole_data populated.
-        xsl_path: Path to MML2OMML.XSL. Auto-detected if None.
     Returns:
         True if conversion succeeded.
     """
@@ -369,12 +369,7 @@ def _normalize_mathml(mathml: str) -> str:
     _normalize_bare_text_nodes(root)
     _normalize_root_degree(root)
     _normalize_empty_scripts(root)
-    # Replace <mtext> → <mi mathvariant="normal"> so MML2OMML.XSL
-    # produces <m:sty m:val="p"/> instead of <m:nor/>.  The latter
-    # switches to the document body font whose baseline may differ
-    # from the math font, making units look like subscripts.
     _mtext_to_normal_mi(root)
-
     _normalize_function_scripts(root)
     _normalize_functions(root)
 
@@ -585,31 +580,38 @@ _CACHED_XSLT_PATH = None
 
 def _mathml_to_omml(mathml: str, xsl_path: Optional[str] = None) -> Optional[str]:
     global _CACHED_XSLT_TRANSFORM, _CACHED_XSLT_PATH
-    """Convert MathML to OMML.
-
-    Uses Microsoft's MML2OMML.XSL when it is available (best fidelity).
-    Otherwise falls back to the pure-Python ``mathml2omml`` package, which
-    makes the pipeline usable on Linux/macOS without Microsoft Office.
-    """
-
-    xsl_file = _find_xsl(xsl_path)
-    if xsl_file is None:
-        return _mathml_to_omml_python(mathml)
+    """Convert MathML to OMML."""
 
     try:
-        # Tái sử dụng đối tượng XSLT đã biên dịch để không phải parse lại file đĩa
-        if _CACHED_XSLT_TRANSFORM is None or _CACHED_XSLT_PATH != str(xsl_file):
-            xsl_doc = etree.parse(str(xsl_file))
-            _CACHED_XSLT_TRANSFORM = etree.XSLT(xsl_doc)
-            _CACHED_XSLT_PATH = str(xsl_file)
-
-        mathml_doc = etree.fromstring(mathml.encode("utf-8"))
-        result = _CACHED_XSLT_TRANSFORM(mathml_doc)
-        omml = etree.tostring(result, encoding="unicode", pretty_print=False)
+        root = etree.fromstring(mathml.encode("utf-8"))
+        # mathml2omml only understands un-prefixed element names.
+        for elem in root.iter():
+            if isinstance(elem.tag, str):
+                elem.tag = etree.QName(elem).localname
+        _wrap_trailing_closers(root)
+        marks = _extract_accents(root)
+        etree.cleanup_namespaces(root)
+        clean = etree.tostring(root, encoding="unicode")
+        omml = mathml2omml.convert(clean)
+        if not omml:
+            return None
+        if marks:
+            omml = _apply_accents(omml, marks)
+            if omml is None:
+                return None
+        omml = _unwrap_plain_boxes(omml)
+        # Declare the OMML namespace so the fragment parses standalone.
+        omml = omml.strip()
+        if "xmlns:m=" not in omml.split(">", 1)[0]:
+            omml = omml.replace(
+                "<m:oMath",
+                '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"',
+                1,
+            )
         return omml
-    except Exception:
-        # Nếu XSLT gặp lỗi bất thường thì tự động fallback về mathml2omml
-        return _mathml_to_omml_python(mathml)
+    except Exception as e:
+        print(f"[DEBUG mathml2omml error]: {e}\nMathML: {mathml}")
+        return None
 
 
 _BAR_CHARS = {"¯", "‾", "―", "_", "−", "-", "\u0305", "\u203e"}
@@ -786,107 +788,6 @@ def _unwrap_plain_boxes(omml: str) -> str:
     out = etree.tostring(root[0], encoding="unicode") if len(root) else omml
     return out
 
-
-def _mathml_to_omml_python(mathml: str) -> Optional[str]:
-    """Pure-Python MathML -> OMML fallback (no Microsoft Office needed)."""
-    try:
-        import mathml2omml
-    except ImportError:
-        return None
-
-    try:
-        root = etree.fromstring(mathml.encode("utf-8"))
-        # mathml2omml only understands un-prefixed element names.
-        for elem in root.iter():
-            if isinstance(elem.tag, str):
-                elem.tag = etree.QName(elem).localname
-        _wrap_trailing_closers(root)
-        marks = _extract_accents(root)
-        etree.cleanup_namespaces(root)
-        clean = etree.tostring(root, encoding="unicode")
-        omml = mathml2omml.convert(clean)
-        if not omml:
-            return None
-        if marks:
-            omml = _apply_accents(omml, marks)
-            if omml is None:
-                return None
-        omml = _unwrap_plain_boxes(omml)
-        # Declare the OMML namespace so the fragment parses standalone.
-        omml = omml.strip()
-        if "xmlns:m=" not in omml.split(">", 1)[0]:
-            omml = omml.replace(
-                "<m:oMath",
-                '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"',
-                1,
-            )
-        return omml
-    except Exception as e:
-        # Thêm dòng này để in ra lỗi và chuỗi MathML gây lỗi:
-        print(f"[DEBUG mathml2omml error]: {e}\nMathML: {mathml}")
-        return None
-
-def _find_xsl(xsl_path: Optional[str] = None) -> Optional[Path]:
-    """Find the MML2OMML.XSL file."""
-
-    # Try getting .xsl file from --xsl agrument
-    if xsl_path:
-        p = Path(xsl_path)
-        if p.exists():
-            return p
-
-    # Try getting .xsl file from resources
-    bundled = Path(__file__).resolve().parent / "resources" / "MML2OMML.XSL"
-    if bundled.exists():
-        return bundled
-
-    # Try getting .xsl file from current working directory
-    local_candidates = [
-        Path.cwd() / "MML2OMML.XSL",
-        Path(__file__).resolve().parents[2] / "MML2OMML.XSL",
-    ]
-    for candidate in local_candidates:
-        if candidate.exists():
-            return candidate
-
-    # Try getting .xsl file from Microsoft Office
-    os_candidates: list[Path] = []
-
-    if sys.platform == "win32":
-        # Windows
-        prog_dirs = [
-            os.environ.get("ProgramFiles", r"C:\Program Files"),
-            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
-        ]
-        office_vers = ["Office16", "Office15", "Office14", "Office12"]
-        for p_dir in prog_dirs:
-            if not p_dir:
-                continue
-            base = Path(p_dir) / "Microsoft Office"
-            for ver in office_vers:
-                os_candidates.append(base / "root" / ver / "MML2OMML.XSL")
-                os_candidates.append(base / ver / "MML2OMML.XSL")
-
-    elif sys.platform == "darwin":
-        # MacOS
-        os_candidates.extend([
-            Path("/Applications/Microsoft Word.app/Contents/Resources/MML2OMML.XSL"),
-            Path("/Library/Application Support/Microsoft/Office365/MML2OMML.XSL"),
-        ])
-
-    elif sys.platform.startswith("linux"):
-        # Linux
-        os_candidates.extend([
-            Path.home() / ".local" / "share" / "mathtypejx" / "resources" / "MML2OMML.XSL",
-            Path("/usr/local/share/mathtypejx/resources/MML2OMML.XSL"),
-            Path("/usr/share/mathtypejx/resources/MML2OMML.XSL"),
-        ])
-
-    for p in os_candidates:
-        if p.exists():
-            return p
-
-    return None
 
 def _assess_risk(mathml: str, omml: str) -> RiskLevel:
     """Assess replacement risk based on complexity and style-sensitive constructs."""

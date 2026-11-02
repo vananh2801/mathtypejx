@@ -2,7 +2,7 @@
 
 `mathtypejx` is a Python package for converting MathType and legacy Equation Editor OLE formulas in Word `.docx` files into native OMML equations.
 
-The core MathType Equation Format (MTEF) parser is implemented in Python. The final MathML-to-OMML step uses Microsoft Office's `MML2OMML.XSL`, which is normally installed with Office.
+The core MathType Equation Format (MTEF) parser is implemented in Python. The final MathML-to-OMML step uses the python package "mathml2omml".
 
 ## Features
 
@@ -30,7 +30,6 @@ The code also includes defensive handling for failures that appeared while proce
 - Text-mode characters are wrapped as MathML tokens so overbars and other embellishments keep their base character.
 - MathML normalization fixes missing namespaces, bare text inside containers, empty root-degree cases, and `mtext` baseline issues before OMML conversion.
 - OMML quality checks block replacements with empty critical slots, token loss, structure loss, matrix row/cell loss, delimiter loss, accent/bar loss, n-ary limit loss, or malformed XML.
-- Unsupported-character noise from `MML2OMML.XSL` is stripped from generated OMML where possible.
 - Failed conversions keep the original OLE object in the output document, and the report preserves per-formula status, risk level, warnings, and errors.
 
 ## Install
@@ -52,16 +51,6 @@ python -m pytest -q
 - `lxml`
 - `olefile`
 - `python-docx`
-- Microsoft Office `MML2OMML.XSL` for OMML output
-
-Typical Windows Office paths:
-
-```text
-C:\Program Files\Microsoft Office\root\Office16\MML2OMML.XSL
-C:\Program Files (x86)\Microsoft Office\root\Office16\MML2OMML.XSL
-```
-
-You can pass a custom XSL path with `--xsl`.
 
 ## CLI
 
@@ -69,7 +58,7 @@ You can pass a custom XSL path with `--xsl`.
 mathtypejx health
 mathtypejx convert input.docx -o output.docx
 mathtypejx convert "path-to-input-folder" -o "path-to-output-folder"
-mathtypejx convert input.docx -o output.docx --xsl "path-to-custom-xsl-file"
+mathtypejx convert input.docx -o output.docx
 ```
 
 ## Python API
@@ -92,8 +81,6 @@ print(report.succeeded, report.failed)
 
 - Supports `.docx` files, not legacy binary `.doc` files.
 - Supports MathType OLE (`Equation.DSMT4`) and older Equation Editor OLE streams.
-- Does not convert formulas embedded only as WMF images.
-- OMML output requires an available `MML2OMML.XSL`.
 - Public tests use tiny binary OLE fixtures and synthetic documents; large private exam corpora are intentionally not included.
 
 ## Acknowledgements
@@ -104,6 +91,7 @@ This project builds on the public MathType-to-MathML work that came before it:
 - [`jure/mathtype_to_mathml`](https://github.com/jure/mathtype_to_mathml), which provides the original XSLT-based MTEF XML to MathML conversion approach.
 - [`transpect/mathtype-extension`](https://github.com/transpect/mathtype-extension), whose public documentation and bundled fontmaps/XSLT ecosystem helped clarify the conversion pipeline.
 - The `mathtype_to_mathml_plus` Ruby gem, which combines the `mathtype` gem and XSLTs into a MathType binary to MathML conversion flow.
+- [`amedama41/mathml2omml`](https://github.com/amedama41/mathml2omml), pure Python library to convert MathML to OMML (Office Math Markup Language).
 
 `mathtypejx` is a Python implementation and packaging of this conversion path for `.docx` to OMML workflows, not an original discovery of the MTEF conversion model.
 
